@@ -11,7 +11,7 @@ fn main() {
             process::exit(1);
         });
 
-        println!("Path: {}\nOperation: {}\nKey: {}", config.in_path, config.op, config.key);
+        println!("Input path: {}\nOperation: {}\nKey: {}\nOut path: {}", config.in_path, config.op, config.key, config.out_path);
 
         if let Err(e) = quiet(config) {
             println!("Application error: {e}");
@@ -172,7 +172,9 @@ fn enc(input: &str, key: u8) -> String {
 
     let mut i = 0;
     for _n in input.graphemes(true) {
-        let hex = format!("{:x}", input.trim().chars().nth(i).unwrap() as u8);
+        let mut hex = format!("{:x}", input.trim().chars().nth(i).unwrap() as u8);
+        hex = format!("{:0>2}", hex);
+
         i += 1;
 
         out = out + &*hex.graphemes(true).nth(0).unwrap().to_string();
