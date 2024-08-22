@@ -2,7 +2,6 @@ use const_hex::decode;
 use rand::prelude::*;
 use std::{env, error::Error, fs, fs::File, io, io::Write, process, str};
 use unicode_segmentation::UnicodeSegmentation;
-use indicatif::ProgressIterator;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -12,14 +11,14 @@ fn main() {
             process::exit(1);
         });
 
-        println!("Input path: {}\nOperation: {}\nKey: {}\nOutput path: {}", config.in_path, config.op, config.key, config.out_path);
+        //println!("Input path: {}\nOperation: {}\nKey: {}\nOutput path: {}", config.in_path, config.op, config.key, config.out_path);
 
         if let Err(e) = quiet(config) {
             println!("Application error: {e}");
             process::exit(1);
         }
     } else {
-        cli_interface();
+        //cli_interface();
     }
 }
 
@@ -27,7 +26,7 @@ struct Config {
     in_path: String,
     op: String,
     key: String,
-    out_path: String
+    out_path: String,
 }
 
 impl Config {
@@ -41,24 +40,29 @@ impl Config {
         let key = args[3].clone();
         let out_path = args[4].clone();
 
-        Ok(Config { in_path, op, key, out_path})
+        Ok(Config { in_path, op, key, out_path })
     }
 }
 
 fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
-    let text = fs::read_to_string(config.in_path)?;
-
     if config.op == "Encrypt" {
         match config.key.trim().parse::<u8>() {
             Ok(k) => {
-                let encrypted = enc(&text.trim(), k);
-                if config.out_path.starts_with("_") {
-                    println!("Encrypted text: {}", encrypted);
-                } else {
-                    let mut file = File::create(config.out_path)?;
-                    file.write_all(encrypted.as_bytes())?;
+                match enc("_", &config.in_path, &config.out_path, k) {
+                    Ok(encrypted) => {
+                        if config.out_path.starts_with("_") {
+                            println!("Encrypted text: {encrypted}");
+                        } else {
+                            println!("Successfully wrote encrypted text to {}", config.out_path);
+                        }
+                        process::exit(0);
+                    }
+                    _ => {
+                        println!("Something went wrong and I can't be bothered to figure out what it is");
+                        process::exit(1);
+                    }
                 }
-                process::exit(0);
+
             }
             _ => {
                 println!("Invalid key");
@@ -66,12 +70,12 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
             }
         }
     } else if config.op == "Decrypt" {
-        match dec(&text.trim(), &config.out_path) {
+        match dec("_", &config.in_path, &config.out_path) {
             Ok(result) => {
                 if config.out_path.starts_with("_") {
                     println!("Decrypted text: {result}");
                 } else {
-
+                    println!("Successfully wrote decrypted text to {}", config.out_path);
                 }
                 process::exit(0);
             }
@@ -86,7 +90,7 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
     }
 }
 
-fn cli_interface() {
+/*fn cli_interface() {
     'outer: loop {
         print!("Input 1 for encryption, 2 for decryption, or 3 to exit: ");
         io::stdout().flush().unwrap();
@@ -165,62 +169,90 @@ fn cli_interface() {
             }
         }
     }
-}
-fn enc(input: &str, key: u8) -> String {
+}*/
+
+fn enc(input: &str, in_path: &str, out_path: &str, key: u8) -> Result<String, Box<dyn Error>> {
+    let file_input = fs::read(in_path)?;
+
     let mut out = format!("{form:0>2}", form = format!("{key:x}")).to_string();
     let mut rng = thread_rng();
 
-    let mut i = 0;
-    for _n in input.graphemes(true) {
-        let mut hex_num = format!("{:x}", input.trim().chars().nth(i).unwrap() as u8);
-        hex_num = format!("{:0>2}", hex_num);
-        i += 1;
+    if !out_path.starts_with('_') {
+        let mut file = File::create(out_path)?;
 
-        out.push(hex_num.chars().nth(0).unwrap());
+        for n in 0..String::from_utf8(file_input).unwrap().graphemes(true).count() {
+            let hex_num = format!("{:x}", file_input[n + 2]);
+            let hex_num_v = format!("{:0>2}", hex_num).into_bytes();
 
-        for _n in 0..key {
-            out = out + &format!("{:x}", rng.gen_range(0..=15))
+            file.write_all((&String::from_utf8_lossy(&[hex_num_v[0]])).as_ref().as_ref())?;
+
+            for _n in 0..key {
+                file.write_all((&format!("{:x}", rng.gen_range(0..=15))).as_ref())?;
+            }
+
+            file.write_all((&String::from_utf8_lossy(&[hex_num_v[1]])).as_ref().as_ref())?;
+
+            for _n in 0..key {
+                file.write_all((&format!("{:x}", rng.gen_range(0..=15))).as_ref())?;
+            }
         }
+    } else if ! input.starts_with('_'){
+        let input = input.to_owned().into_bytes();
 
-        out.push(hex_num.chars().nth(1).unwrap());
+        for n in 0..String::from_utf8(input).unwrap().graphemes(true).count() {
+            let hex_num = format!("{:x}", input[n + 2]);
+            let hex_num_v = format!("{:0>2}", hex_num).into_bytes();
 
-        for _n in 0..key {
-            out.push_str(&format!("{:x}", rng.gen_range(0..=15)))
+            out.push_str(&String::from_utf8_lossy(&[hex_num_v[0]]));
+
+            for _n in 0..key {
+                out.push_str(&format!("{:x}", rng.gen_range(0..=15)));
+            }
+
+            out.push_str(&String::from_utf8_lossy(&[hex_num_v[1]]));
+
+            for _n in 0..key {
+                out.push_str(&format!("{:x}", rng.gen_range(0..=15)));
+            }
         }
     }
 
-    out
+    Ok(out)
 }
 
-fn dec(input: &str, out_path: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let key = (i32::from_str_radix(&*(input.graphemes(true).nth(0).unwrap_or("").to_string()
-        + input.graphemes(true).nth(1).unwrap_or("")), 16)?) + 1;
+fn dec(input: &str, in_path: &str, out_path: &str) -> Result<String, Box<dyn Error>> {
+    let file_input = fs::read(in_path)?;
+    let input = input.to_owned().into_bytes();
+
+    let key = i32::from_str_radix(&(String::from_utf8_lossy(&[file_input[0]])
+        + &*String::from_utf8_lossy(&[file_input[1]])), 16)? + 1;
 
     let mut out = String::new();
 
     let mut pos: i32 = 2;
 
-    let realchars = (input.graphemes(true).count() - 2) as i32 / (key * 2);
+    let real_chars = (file_input.iter().len() - 2) as i32 / (key * 2);
 
     if out_path.starts_with('_') {
-        for _n in (0..realchars).progress() {
+        for _n in 0..real_chars {
             let mut hex_char = String::new();
-            hex_char.push(input.chars().nth(pos as usize).unwrap());
+            hex_char.push_str(&String::from_utf8_lossy(&[input[pos as usize]]));
             pos += key;
-            hex_char.push(input.chars().nth(pos as usize).unwrap());
+            hex_char.push_str(&String::from_utf8_lossy(&[input[pos as usize]]));
             pos += key;
             out.push_str(&String::from_utf8(decode(hex_char).unwrap())?);
         }
     } else {
         let mut file = File::create(out_path)?;
         //file.write_all(result.as_bytes())?;
-        for n in (0..realchars).progress() {
+        for _n in 0..real_chars {
             let mut hex_char = String::new();
-            hex_char.push(input.chars().nth((n * key + 2) as usize).unwrap());
-            //pos += key;
-            hex_char.push(input.chars().nth((n * key + key + 2) as usize).unwrap());
-            //pos += key;
-            write!(&mut file, "{}", &String::from_utf8(decode(hex_char).unwrap())?)?;//.push_str(&String::from_utf8(decode(hex_char).unwrap())?);
+            hex_char.push_str(&String::from_utf8_lossy(&[file_input[pos as usize]]));
+            pos += key;
+            hex_char.push_str(&String::from_utf8_lossy(&[file_input[pos as usize]]));
+            pos += key;
+            out.push_str(&String::from_utf8(decode(&hex_char).unwrap())?);
+            file.write_all((&String::from_utf8(decode(&hex_char).unwrap())?).as_ref())?;
         }
     }
 
