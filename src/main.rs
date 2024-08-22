@@ -1,7 +1,8 @@
-use hex::decode;
+use const_hex::decode;
 use rand::prelude::*;
-use std::{env, fs, fs::File, io, io::Write, process, str, error::Error};
+use std::{env, error::Error, fs, fs::File, io, io::Write, process, str};
 use unicode_segmentation::UnicodeSegmentation;
+use indicatif::ProgressIterator;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -11,7 +12,7 @@ fn main() {
             process::exit(1);
         });
 
-        println!("Input path: {}\nOperation: {}\nKey: {}\nOut path: {}", config.in_path, config.op, config.key, config.out_path);
+        println!("Input path: {}\nOperation: {}\nKey: {}\nOutput path: {}", config.in_path, config.op, config.key, config.out_path);
 
         if let Err(e) = quiet(config) {
             println!("Application error: {e}");
@@ -65,13 +66,12 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
             }
         }
     } else if config.op == "Decrypt" {
-        match dec(&text.trim()) {
+        match dec(&text.trim(), &config.out_path) {
             Ok(result) => {
                 if config.out_path.starts_with("_") {
                     println!("Decrypted text: {result}");
                 } else {
-                    let mut file = File::create(config.out_path)?;
-                    file.write_all(result.as_bytes())?;
+
                 }
                 process::exit(0);
             }
@@ -138,7 +138,7 @@ fn cli_interface() {
                             break 'dec_loop;
                         }
 
-                        match dec(&str.trim()) {
+                        match dec(&str.trim(), "_") {
                             Ok(result) => {
                                 println!("Decrypted text: {result}");
 
@@ -172,28 +172,27 @@ fn enc(input: &str, key: u8) -> String {
 
     let mut i = 0;
     for _n in input.graphemes(true) {
-        let mut hex = format!("{:x}", input.trim().chars().nth(i).unwrap() as u8);
-        hex = format!("{:0>2}", hex);
-
+        let mut hex_num = format!("{:x}", input.trim().chars().nth(i).unwrap() as u8);
+        hex_num = format!("{:0>2}", hex_num);
         i += 1;
 
-        out = out + &*hex.graphemes(true).nth(0).unwrap().to_string();
+        out.push(hex_num.chars().nth(0).unwrap());
 
         for _n in 0..key {
             out = out + &format!("{:x}", rng.gen_range(0..=15))
         }
 
-        out = out + &*hex.chars().nth(1).unwrap().to_string();
+        out.push(hex_num.chars().nth(1).unwrap());
 
         for _n in 0..key {
-            out = out + &format!("{:x}", rng.gen_range(0..=15))
+            out.push_str(&format!("{:x}", rng.gen_range(0..=15)))
         }
     }
 
     out
 }
 
-fn dec(input: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn dec(input: &str, out_path: &str) -> Result<String, Box<dyn std::error::Error>> {
     let key = (i32::from_str_radix(&*(input.graphemes(true).nth(0).unwrap_or("").to_string()
         + input.graphemes(true).nth(1).unwrap_or("")), 16)?) + 1;
 
@@ -203,12 +202,26 @@ fn dec(input: &str) -> Result<String, Box<dyn std::error::Error>> {
 
     let realchars = (input.graphemes(true).count() - 2) as i32 / (key * 2);
 
-    for _n in 0..realchars {
-        let mut hex = input.graphemes(true).nth(pos as usize).unwrap().to_owned();
-        pos += key;
-        hex += input.graphemes(true).nth(pos as usize).unwrap();
-        pos += key;
-        out += str::from_utf8(&*decode(hex).unwrap())?;
+    if out_path.starts_with('_') {
+        for _n in (0..realchars).progress() {
+            let mut hex_char = String::new();
+            hex_char.push(input.chars().nth(pos as usize).unwrap());
+            pos += key;
+            hex_char.push(input.chars().nth(pos as usize).unwrap());
+            pos += key;
+            out.push_str(&String::from_utf8(decode(hex_char).unwrap())?);
+        }
+    } else {
+        let mut file = File::create(out_path)?;
+        //file.write_all(result.as_bytes())?;
+        for n in (0..realchars).progress() {
+            let mut hex_char = String::new();
+            hex_char.push(input.chars().nth((n * key + 2) as usize).unwrap());
+            //pos += key;
+            hex_char.push(input.chars().nth((n * key + key + 2) as usize).unwrap());
+            //pos += key;
+            write!(&mut file, "{}", &String::from_utf8(decode(hex_char).unwrap())?)?;//.push_str(&String::from_utf8(decode(hex_char).unwrap())?);
+        }
     }
 
     Ok(out)
