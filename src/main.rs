@@ -1,74 +1,131 @@
 use const_hex::decode;
 use rand::prelude::*;
 use std::{env, error::Error, fs, fs::File, io, io::Write, process, str};
-use unicode_segmentation::UnicodeSegmentation;
+use std::env::Args;
+use std::iter::Skip;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() > 2 {
-        let config = Config::build(&args).unwrap_or_else(|err| {
-            println!("Problem parsing arguments: {err}");
-            process::exit(1);
-        });
+    let args = env::args().skip(1);
+    let config = Config::build(args);
 
-        //println!("Input path: {}\nOperation: {}\nKey: {}\nOutput path: {}", config.in_path, config.op, config.key, config.out_path);
-
-        if let Err(e) = quiet(config) {
-            println!("Application error: {e}");
-            process::exit(1);
-        }
+    if config.interactive {
+        interactive();
     } else {
-        cli_interface();
+        if let Err(e) = quiet(config) {
+            println!("Error: {e}");
+            process::exit(0);
+        }
     }
 }
 
 struct Config {
     in_path: String,
     op: String,
-    key: String,
+    key: u8,
     out_path: String,
+    interactive: bool
 }
 
 impl Config {
-    fn build(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() < 4 {
-            return Err("not enough arguments");
-        }
+    fn build(mut args: Skip<Args>) -> Config {
+        let mut in_path = String::from("_");
+        let mut op = String::from("E");
+        let mut key: u8 = 1;
+        let mut out_path = String::from("_");
+        let mut interactive= true;
 
-        let in_path = args[1].clone();
-        let op = args[2].clone();
-        let key = args[3].clone();
-        let out_path = args[4].clone();
-
-        Ok(Config { in_path, op, key, out_path })
-    }
-}
-
-fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
-    if config.op == "Encrypt" {
-        match config.key.trim().parse::<u8>() {
-            Ok(k) => {
-                match enc("_", &config.in_path, &config.out_path, k) {
-                    Ok(encrypted) => {
-                        if config.out_path.starts_with("_") {
-                            println!("Encrypted text: {encrypted}");
-                        } else {
-                            println!("Successfully wrote encrypted text to {}", config.out_path);
-                        }
-                        process::exit(0);
+        'parse: while let Some(arg) = args.next() {
+            match &arg[..] {
+                "-h" | "--help" => help(),
+                "-i" | "--interactive" => {
+                    break 'parse;
+                }
+                "-q" | "--quiet" => {
+                    interactive = false;
+                }
+                "-e" | "--encrypt" => {
+                    op = "E".to_string();
+                    if let Some(arg_input) = args.next() {
+                        in_path = arg_input;
+                    } else {
+                        println!("No input path specified");
+                        process::exit(0)
                     }
-                    Err(error) => {
-                        println!("Encryption error: {error}");
-                        process::exit(0);
+                }
+                "-d" | "--decrypt" => {
+                    op = "D".to_string();
+                    if let Some(arg_input) = args.next() {
+                        in_path = arg_input;
+                    } else {
+                        println!("No input path specified");
+                        process::exit(0)
+                    }
+                }
+                "-k" | "--key" => {
+                    if let Some(arg_key) = args.next() {
+                        match arg_key.parse::<u8>() {
+                            Ok(k) => {
+                                key = k;
+                            }
+                            _ => {
+                                println!("Invalid key \"{arg_key}\", using default \"1\"\n");
+                            }
+                        }
+                    } else {
+                        println!("No value specified for parameter --key, using default \"3\"\n");
+                    }
+                }
+                "-o" | "--output" => {
+                    if let Some(arg_config) = args.next() {
+                    out_path = arg_config;
+                    } else {
+                        println!("No value specified for parameter --output_path");
+                    }
+                }
+                _ => {
+                    if arg.starts_with('-') {
+                        println!("Unknown argument {}", arg);
+                    } else {
+                        println!("Unknown positional argument {}", arg);
                     }
                 }
             }
+        }
+
+        Config {in_path, op, key, out_path, interactive}
+    }
+}
+
+fn help() {
+    println!("Usage: encryption [OPTIONS]\n");
+    println!("Options:");
+    println!("  -h, --help                             Displays this list of options");
+    println!("  -i, --interactive   (Default)          Runs in interactive mode, no further options are used");
+    println!("  -q, --quiet                            Runs in quiet mode with the options below:\n");
+    println!("  -e, --encrypt <INPUT_PATH>             Encrypts file at <INPUT_PATH>");
+    println!("  -d, --decrypt <INPUT_PATH>             Decrypts the text file at <INPUT_PATH>");
+    println!("  -k, --key <KEY, 0..255>    (Optional)  Uses <KEY> as encryption length [default: 3]");
+    println!("  -o, --output <OUTPUT_PATH> (Optional)  Writes the output to a file at <PATH> instead of the console (will overwrite existing files)");
+    process::exit(0);
+}
+
+fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
+    if config.op == "E" {
+        match enc("_", &config.in_path, &config.out_path, config.key) {
+            Ok(encrypted) => {
+                if config.out_path == ("_") {
+                    println!("Encrypted text: {encrypted}");
+                } else {
+                    println!("Successfully wrote encrypted text to {}", config.out_path);
+                }
+                process::exit(0);
+            }
             Err(error) => {
-                println!("Invalid key, error: {error}");
+                println!("Encryption error: {error}");
                 process::exit(0);
             }
         }
-    } else if config.op == "Decrypt" {
+    } else if config.op == "D" {
         match dec("_", &config.in_path, &config.out_path) {
             Ok(result) => {
                 if config.out_path.starts_with("_") {
@@ -85,11 +142,11 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
         }
     } else {
         println!("No valid operation selected");
-        process::exit(1);
+        process::exit(0);
     }
 }
 
-fn cli_interface() {
+fn interactive() {
     'outer: loop {
         print!("Input 1 for encryption, 2 for decryption, or 3 to exit: ");
         io::stdout().flush().unwrap();
@@ -188,14 +245,14 @@ fn enc(input: &str, in_path: &str, out_path: &str, key: u8) -> Result<String, Bo
 
     let mut rng = thread_rng();
 
-    if ! in_path.starts_with('_') {
+    if in_path != ("_") {
         let file_input = fs::read(in_path)?;
 
         if ! out_path.starts_with('_') {
             let mut out_file = File::create(out_path)?;
             out_file.write_all(out.as_bytes())?;
 
-            for n in 0..String::from_utf8(file_input.clone()).unwrap().graphemes(true).count() {
+            for n in 0..file_input.len() {
                 let hex_num = format!("{:x}", &file_input[n]);
                 let hex_num_v = format!("{:0>4}", hex_num).into_bytes();
 
@@ -210,7 +267,7 @@ fn enc(input: &str, in_path: &str, out_path: &str, key: u8) -> Result<String, Bo
 
             out_file.write_all(&[hex_key.as_bytes()[1]])?;
         } else {
-            for n in 0..String::from_utf8(file_input.clone()).unwrap().graphemes(true).count() {
+            for n in 0..file_input.len() {
                 let hex_num = format!("{:x}", file_input[n]);
                 let hex_num_v = format!("{:0>4}", hex_num).into_bytes();
 
@@ -224,7 +281,7 @@ fn enc(input: &str, in_path: &str, out_path: &str, key: u8) -> Result<String, Bo
             }
             out.push(hex_key.chars().nth(1).unwrap());
         }
-    } else if ! input.starts_with('_'){
+    } else if input != ("_"){
         let input = input.to_owned().into_bytes();
 
         for n in 0..input.len() {
@@ -251,15 +308,15 @@ fn dec(input: &str, in_path: &str, out_path: &str) -> Result<String, Box<dyn Err
     let mut out = String::new();
     let mut pos: i32 = 1;
 
-    if ! in_path.starts_with('_') {
+    if in_path != "_" {
         let file_input = fs::read(in_path)?;
 
         let key = i32::from_str_radix(&(String::from_utf8_lossy(&[file_input[0]])
             + &*String::from_utf8_lossy(&[file_input[file_input.len() - 1]])), 16)? + 1;
 
-        let real_chars = (file_input.len() - 2) as i32 / (key * 4);
+        let real_chars = (file_input.len() - 2) as i32 / (key * 4) - 1;
 
-        if ! out_path.starts_with('_') {
+        if out_path != "_" {
             let mut file = File::create(out_path)?;
             for _n in 0..real_chars {
                 let mut hex_char = String::new();
@@ -279,7 +336,7 @@ fn dec(input: &str, in_path: &str, out_path: &str) -> Result<String, Box<dyn Err
                 out.push_str(&String::from_utf8(decode(&hex_char)?)?);
             }
         }
-    } else if ! input.starts_with('_'){
+    } else if input != "_" {
         let input = input.to_owned().into_bytes();
 
         let key = i32::from_str_radix(&(String::from_utf8_lossy(&[input[0]])
@@ -293,7 +350,6 @@ fn dec(input: &str, in_path: &str, out_path: &str) -> Result<String, Box<dyn Err
                 hex_char.push_str(&String::from_utf8_lossy(&[input[pos as usize]]));
                 pos += key;
             }
-            println!("{}", hex_char);
             out.push_str(&String::from_utf8(decode(&hex_char)?)?);
         }
     }
