@@ -3,6 +3,7 @@ use rand::prelude::*;
 use std::{env, error::Error, fs, fs::File, io, io::Write, process, str};
 use std::env::Args;
 use std::iter::Skip;
+use std::path::Path;
 
 fn main() {
     let args = env::args().skip(1);
@@ -36,7 +37,10 @@ impl Config {
 
         'parse: while let Some(arg) = args.next() {
             match &arg[..] {
-                "-h" | "--help" => help(),
+                "-h" | "--help" => {
+                    help();
+                    process::exit(0);
+                }
                 "-i" | "--interactive" => {
                     break 'parse;
                 }
@@ -83,7 +87,12 @@ impl Config {
                     }
                 }
                 _ => {
-                    if arg.starts_with('-') {
+                    if Path::new(&arg).is_file() {
+                        op = "D".to_string();
+                        in_path = arg.clone();
+                        out_path = arg.clone() + ".decrypted.txt";
+                        interactive = false;
+                    } else if arg.starts_with('-') {
                         println!("Unknown argument {}", arg);
                     } else {
                         println!("Unknown positional argument {}", arg);
@@ -97,7 +106,7 @@ impl Config {
 }
 
 fn help() {
-    println!("Usage: encryption [OPTIONS]\n");
+    println!("\nUsage: encryption [OPTIONS]\n");
     println!("Options:");
     println!("  -h, --help                             Displays this list of options");
     println!("  -i, --interactive   (Default)          Runs in interactive mode, no further options are used");
@@ -105,8 +114,7 @@ fn help() {
     println!("  -e, --encrypt <INPUT_PATH>             Encrypts file at <INPUT_PATH>");
     println!("  -d, --decrypt <INPUT_PATH>             Decrypts the text file at <INPUT_PATH>");
     println!("  -k, --key <KEY, 0..255>    (Optional)  Uses <KEY> as encryption length [default: 3]");
-    println!("  -o, --output <OUTPUT_PATH> (Optional)  Writes the output to a file at <PATH> instead of the console (will overwrite existing files)");
-    process::exit(0);
+    println!("  -o, --output <OUTPUT_PATH> (Optional)  Writes the output to a file at <PATH> instead of the console (will overwrite existing files)\n");
 }
 
 fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
@@ -148,7 +156,7 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
 
 fn interactive() {
     'outer: loop {
-        print!("Input 1 for encryption, 2 for decryption, or 3 to exit: ");
+        print!("Input 1 for encryption, 2 for decryption, 3 to view cli options, or 4 to exit: ");
         io::stdout().flush().unwrap();
 
         'inner: loop {
@@ -222,12 +230,16 @@ fn interactive() {
                     break 'inner;
                 }
                 Ok(3) => {
+                    help();
+                    break 'inner;
+                },
+                Ok(4) => {
                     println!("o/");
 
                     break 'outer;
                 }
                 _ => {
-                    print!("Please input 1, 2, or 3: ");
+                    print!("Please input 1, 2, 3, or 4: ");
                     io::stdout().flush().unwrap();
                 }
             }
