@@ -62,7 +62,6 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
                         process::exit(1);
                     }
                 }
-
             }
             _ => {
                 println!("Invalid key");
@@ -180,8 +179,8 @@ fn enc(input: &str, in_path: &str, out_path: &str, key: u8) -> Result<String, Bo
     if !out_path.starts_with('_') {
         let mut file = File::create(out_path)?;
 
-        for n in 0..String::from_utf8(file_input).unwrap().graphemes(true).count() {
-            let hex_num = format!("{:x}", file_input[n + 2]);
+        for n in 0..String::from_utf8(file_input.clone()).unwrap().graphemes(true).count() {
+            let hex_num = format!("{:x}", &file_input[n + 2]);
             let hex_num_v = format!("{:0>2}", hex_num).into_bytes();
 
             file.write_all((&String::from_utf8_lossy(&[hex_num_v[0]])).as_ref().as_ref())?;
@@ -199,7 +198,7 @@ fn enc(input: &str, in_path: &str, out_path: &str, key: u8) -> Result<String, Bo
     } else if ! input.starts_with('_'){
         let input = input.to_owned().into_bytes();
 
-        for n in 0..String::from_utf8(input).unwrap().graphemes(true).count() {
+        for n in 0..String::from_utf8(input.clone()).unwrap().graphemes(true).count() {
             let hex_num = format!("{:x}", input[n + 2]);
             let hex_num_v = format!("{:0>2}", hex_num).into_bytes();
 
