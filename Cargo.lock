@@ -270,6 +270,7 @@ name = "rustest"
 version = "0.1.0"
 dependencies = [
  "const-hex",
+ "hex",
  "indicatif",
  "rand 0.9.0-alpha.2",
  "unicode-segmentation",

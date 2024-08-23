@@ -18,7 +18,7 @@ fn main() {
             process::exit(1);
         }
     } else {
-        //cli_interface();
+        cli_interface();
     }
 }
 
@@ -57,15 +57,15 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
                         }
                         process::exit(0);
                     }
-                    _ => {
-                        println!("Something went wrong and I can't be bothered to figure out what it is");
-                        process::exit(1);
+                    Err(error) => {
+                        println!("Encryption error: {error}");
+                        process::exit(0);
                     }
                 }
             }
-            _ => {
-                println!("Invalid key");
-                process::exit(1);
+            Err(error) => {
+                println!("Invalid key, error: {error}");
+                process::exit(0);
             }
         }
     } else if config.op == "Decrypt" {
@@ -78,9 +78,9 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
                 }
                 process::exit(0);
             }
-            _ => {
-                print!("Invalid input file");
-                process::exit(1);
+            Err(error) => {
+                println!("Input file error: {error}");
+                process::exit(0);
             }
         }
     } else {
@@ -89,7 +89,7 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
     }
 }
 
-/*fn cli_interface() {
+fn cli_interface() {
     'outer: loop {
         print!("Input 1 for encryption, 2 for decryption, or 3 to exit: ");
         io::stdout().flush().unwrap();
@@ -114,14 +114,23 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
                         let mut key = String::new();
                         let _ = io::stdin().read_line(&mut key);
 
+                        if key.trim() == "C" || key.trim() == "c"{  }
+
                         match key.trim().parse::<u8>() {
                             Ok(k) => {
-                                println!("Encrypted text: {}", enc(&text.trim(), k));
+                                match enc(&text.trim(), "_", "_", k) {
+                                    Ok(result) => {
+                                        println!("Encrypted text: {result}");
+                                    }
+                                    Err(error) => {
+                                        println!("Error: {error}")
+                                    }
+                                }
 
                                 break 'key_loop;
                             }
                             _ => {
-                                print!("Please input a number from 0 to 255: ");
+                                print!("Please input a number from 0 to 255 or 'C' to cancel: ");
                                 io::stdout().flush().unwrap();
                             }
                         }
@@ -133,22 +142,21 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
                     print!("Input string to decrypt: ");
                     io::stdout().flush().unwrap();
 
-
                     'dec_loop: loop {
                         let mut str = String::new();
                         let _ = io::stdin().read_line(&mut str);
-                        if str.trim().eq("C") || str.trim().eq("c") {
+                        if str.trim() == "C" || str.trim() == "c" {
                             break 'dec_loop;
                         }
 
-                        match dec(&str.trim(), "_") {
+                        match dec(&str.trim(), "_", "_") {
                             Ok(result) => {
                                 println!("Decrypted text: {result}");
 
                                 break 'dec_loop;
                             }
-                            _ => {
-                                print!("Invalid string, input C to cancel or input a valid string to continue: ");
+                            Err(error) => {
+                                print!("Error: {error}\nInput C to cancel or input a valid string to continue: ");
                                 io::stdout().flush().unwrap();
                             }
                         }
@@ -168,90 +176,125 @@ fn quiet(config: Config) -> Result<String, Box<dyn Error>> {
             }
         }
     }
-}*/
+}
 
 fn enc(input: &str, in_path: &str, out_path: &str, key: u8) -> Result<String, Box<dyn Error>> {
-    let file_input = fs::read(in_path)?;
+    //debug: println!("\ni:{}\nip:{}\nop:{}\nk:{}\n", input, in_path, out_path, key);
 
-    let mut out = format!("{form:0>2}", form = format!("{key:x}")).to_string();
+    let mut out= String::new();
+
+    let hex_key = format!("{form:0>2}", form = format!("{key:x}"));
+    out.push(hex_key.chars().next().unwrap());
+
     let mut rng = thread_rng();
 
-    if !out_path.starts_with('_') {
-        let mut file = File::create(out_path)?;
+    if ! in_path.starts_with('_') {
+        let file_input = fs::read(in_path)?;
 
-        for n in 0..String::from_utf8(file_input.clone()).unwrap().graphemes(true).count() {
-            let hex_num = format!("{:x}", &file_input[n + 2]);
-            let hex_num_v = format!("{:0>2}", hex_num).into_bytes();
+        if ! out_path.starts_with('_') {
+            let mut out_file = File::create(out_path)?;
+            out_file.write_all(out.as_bytes())?;
 
-            file.write_all((&String::from_utf8_lossy(&[hex_num_v[0]])).as_ref().as_ref())?;
+            for n in 0..String::from_utf8(file_input.clone()).unwrap().graphemes(true).count() {
+                let hex_num = format!("{:x}", &file_input[n]);
+                let hex_num_v = format!("{:0>4}", hex_num).into_bytes();
 
-            for _n in 0..key {
-                file.write_all((&format!("{:x}", rng.gen_range(0..=15))).as_ref())?;
+                for n in 0..4 {
+                    out_file.write_all(&[hex_num_v[n]])?;
+
+                    for _n in 0..key {
+                        out_file.write_all((&format!("{:x}", rng.gen_range(0..=15))).as_bytes())?;
+                    }
+                }
             }
 
-            file.write_all((&String::from_utf8_lossy(&[hex_num_v[1]])).as_ref().as_ref())?;
+            out_file.write_all(&[hex_key.as_bytes()[1]])?;
+        } else {
+            for n in 0..String::from_utf8(file_input.clone()).unwrap().graphemes(true).count() {
+                let hex_num = format!("{:x}", file_input[n]);
+                let hex_num_v = format!("{:0>4}", hex_num).into_bytes();
 
-            for _n in 0..key {
-                file.write_all((&format!("{:x}", rng.gen_range(0..=15))).as_ref())?;
+                for n in 0..4 {
+                    out.push_str(&String::from_utf8_lossy(&[hex_num_v[n]]));
+
+                    for _n in 0..key {
+                        out.push_str(&format!("{:x}", rng.gen_range(0..=15)));
+                    }
+                }
             }
+            out.push(hex_key.chars().nth(1).unwrap());
         }
     } else if ! input.starts_with('_'){
         let input = input.to_owned().into_bytes();
 
-        for n in 0..String::from_utf8(input.clone()).unwrap().graphemes(true).count() {
-            let hex_num = format!("{:x}", input[n + 2]);
-            let hex_num_v = format!("{:0>2}", hex_num).into_bytes();
+        for n in 0..input.len() {
+            let hex_num = format!("{:x}", input[n]);
+            let hex_num_v = format!("{:0>4}", hex_num).into_bytes();
 
-            out.push_str(&String::from_utf8_lossy(&[hex_num_v[0]]));
+            for n in 0..4 {
+                out.push_str(&String::from_utf8_lossy(&[hex_num_v[n]]));
 
-            for _n in 0..key {
-                out.push_str(&format!("{:x}", rng.gen_range(0..=15)));
-            }
-
-            out.push_str(&String::from_utf8_lossy(&[hex_num_v[1]]));
-
-            for _n in 0..key {
-                out.push_str(&format!("{:x}", rng.gen_range(0..=15)));
+                for _n in 0..key {
+                    out.push_str(&format!("{:x}", rng.gen_range(0..=15)));
+                }
             }
         }
+        out.push(hex_key.chars().nth(1).unwrap());
     }
 
     Ok(out)
 }
 
 fn dec(input: &str, in_path: &str, out_path: &str) -> Result<String, Box<dyn Error>> {
-    let file_input = fs::read(in_path)?;
-    let input = input.to_owned().into_bytes();
-
-    let key = i32::from_str_radix(&(String::from_utf8_lossy(&[file_input[0]])
-        + &*String::from_utf8_lossy(&[file_input[1]])), 16)? + 1;
+    //debug: println!("\ni:{}\nip:{}\nop{}\n", input, in_path, out_path);
 
     let mut out = String::new();
+    let mut pos: i32 = 1;
 
-    let mut pos: i32 = 2;
+    if ! in_path.starts_with('_') {
+        let file_input = fs::read(in_path)?;
 
-    let real_chars = (file_input.iter().len() - 2) as i32 / (key * 2);
+        let key = i32::from_str_radix(&(String::from_utf8_lossy(&[file_input[0]])
+            + &*String::from_utf8_lossy(&[file_input[file_input.len() - 1]])), 16)? + 1;
 
-    if out_path.starts_with('_') {
-        for _n in 0..real_chars {
-            let mut hex_char = String::new();
-            hex_char.push_str(&String::from_utf8_lossy(&[input[pos as usize]]));
-            pos += key;
-            hex_char.push_str(&String::from_utf8_lossy(&[input[pos as usize]]));
-            pos += key;
-            out.push_str(&String::from_utf8(decode(hex_char).unwrap())?);
+        let real_chars = (file_input.len() - 2) as i32 / (key * 4);
+
+        if ! out_path.starts_with('_') {
+            let mut file = File::create(out_path)?;
+            for _n in 0..real_chars {
+                let mut hex_char = String::new();
+                for _ in 0..4 {
+                    hex_char.push_str(&String::from_utf8_lossy(&[file_input[pos as usize]]));
+                    pos += key;
+                }
+                file.write_all((&decode(&hex_char)?.drain(1..)).as_ref())?;
+            }
+        } else {
+            for _n in 0..real_chars {
+                let mut hex_char = String::new();
+                for _ in 0..4 {
+                    hex_char.push_str(&String::from_utf8_lossy(&[file_input[pos as usize]]));
+                    pos += key;
+                }
+                out.push_str(&String::from_utf8(decode(&hex_char)?)?);
+            }
         }
-    } else {
-        let mut file = File::create(out_path)?;
-        //file.write_all(result.as_bytes())?;
+    } else if ! input.starts_with('_'){
+        let input = input.to_owned().into_bytes();
+
+        let key = i32::from_str_radix(&(String::from_utf8_lossy(&[input[0]])
+            + &*String::from_utf8_lossy(&[input[input.len() - 1]])), 16)? + 1;
+
+        let real_chars = (input.len() - 2) as i32 / (key * 4);
+
         for _n in 0..real_chars {
             let mut hex_char = String::new();
-            hex_char.push_str(&String::from_utf8_lossy(&[file_input[pos as usize]]));
-            pos += key;
-            hex_char.push_str(&String::from_utf8_lossy(&[file_input[pos as usize]]));
-            pos += key;
-            out.push_str(&String::from_utf8(decode(&hex_char).unwrap())?);
-            file.write_all((&String::from_utf8(decode(&hex_char).unwrap())?).as_ref())?;
+            for _ in 0..4 {
+                hex_char.push_str(&String::from_utf8_lossy(&[input[pos as usize]]));
+                pos += key;
+            }
+            println!("{}", hex_char);
+            out.push_str(&String::from_utf8(decode(&hex_char)?)?);
         }
     }
 
